@@ -8,18 +8,13 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.text.NumberFormat;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Calendar;
 import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableColumn;
-import javax.swing.text.DefaultFormatterFactory;
-import javax.swing.text.NumberFormatter;
 
 public class TodoListApp extends JFrame {
     
@@ -77,23 +72,23 @@ public class TodoListApp extends JFrame {
         add(controlPanel, BorderLayout.SOUTH);
         
         // Control panel functionality
-        addButton.addActionListener((var e) -> showAddTaskMenu());
-        removeButton.addActionListener((var e) -> removeSelectedTask());
-        filterCompletedButton.addActionListener((var e) -> filterTasks(new FilterOptions(true, false)));
-        filterIncompleteButton.addActionListener((var e) -> filterTasks(new FilterOptions(false, true)));
-        showAllButton.addActionListener((var e) -> filterTasks(new FilterOptions()));
+        addButton.addActionListener(e -> showAddTaskMenu());
+        removeButton.addActionListener(e -> removeSelectedTask());
+        filterCompletedButton.addActionListener(e -> filterTasks(new FilterOptions(true, false)));
+        filterIncompleteButton.addActionListener(e -> filterTasks(new FilterOptions(false, true)));
+        showAllButton.addActionListener(e -> filterTasks(new FilterOptions()));
         
         // Set up todo list
         toDoList = new JList<>(toDoListModel);
         toDoList.setCellRenderer(new CheckboxListCellRenderer());
         
         toDoList.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
+            @Override public void mousePressed(MouseEvent e) {
                 int index = toDoList.locationToIndex(e.getPoint());
                 if (index == -1) return;
                 
                 Task task = toDoListModel.get(index);
-                task.setCompleted(!task.isCompleted());
+                if (e.getPoint().x <= 32) task.setCompleted(!task.isCompleted());
                 toDoList.repaint();
             }
         });
@@ -169,8 +164,14 @@ public class TodoListApp extends JFrame {
     private class FilterOptions {
         public boolean showComplete = true;
         public boolean showIncomplete = true;
+        public boolean clearSelection = true;
+        public Date date = null;
         
         public FilterOptions() { }
+        public FilterOptions(Date date) {
+            this.date = date;
+            this.clearSelection = false;
+        }
         public FilterOptions(boolean showComplete, boolean showIncomplete) {
             this.showComplete = showComplete;
             this.showIncomplete = showIncomplete;
@@ -179,9 +180,12 @@ public class TodoListApp extends JFrame {
     
     private void filterTasks(FilterOptions options) {
         toDoListModel.clear();
+        if (options.clearSelection) calendarTable.clearSelection();
         for (Task task : originalTasks) {
-            if (options.showComplete && task.isCompleted()) toDoListModel.addElement(task);
-            else if (options.showIncomplete && !task.isCompleted()) toDoListModel.addElement(task);
+            if (options.date == null || isSameDay(options.date, task.dueDate)) {
+                if (options.showComplete && task.isCompleted()) toDoListModel.addElement(task);
+                else if (options.showIncomplete && !task.isCompleted()) toDoListModel.addElement(task);
+            } 
         }
     }
     
@@ -254,15 +258,18 @@ public class TodoListApp extends JFrame {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {         
             //setPreferredSize(new Dimension(50,50));
-
+            setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
             // Assume value is of a custom type that holds two values
             //MyCellData cellData = (MyCellData) value;
-            if (row % 2 == 0) {
+            if (isSelected && table.getSelectedRow() == row && table.getSelectedColumn() == column) {
+                setBorder(BorderFactory.createLineBorder(new Color(80, 200, 120)));
+                setBackground(new Color(210,240,220));
+            } else if (row % 2 == 0) {
             // Set background for even rows
                 setBackground(Color.WHITE);
             } else {
                 // Set background for odd rows
-                setBackground(null);
+                setBackground(new Color(242,242,242));
             }
             
             int month = monthComboBox.getSelectedIndex() + 1;  // Months are 0-based
@@ -365,7 +372,8 @@ public class TodoListApp extends JFrame {
                         selectedDate = cal.getTime();
 
                         // Fetch and display tasks for the selected date
-                        filterByDate(selectedDate);
+                        //filterByDate(selectedDate);
+                        filterTasks(new FilterOptions(selectedDate));
                     }
                 }
             }
@@ -403,39 +411,7 @@ public class TodoListApp extends JFrame {
     }
     
     private void updateCalendar() {
-        // Get the selected month and year
-        int month = monthComboBox.getSelectedIndex() + 1;  // Months are 0-based
-        int year = (Integer) yearSpinner.getValue();
-
-        Calendar cal = Calendar.getInstance();
-        cal.set(Calendar.MONTH, month - 1);
-        cal.set(Calendar.YEAR, year);
-        cal.set(Calendar.DAY_OF_MONTH, 1);
-
-        int firstDayOfMonth = cal.get(Calendar.DAY_OF_WEEK);  // 1st day of the month
-
-        // Get the number of days in the month
-        int daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH);
-        calendarModel.setRowCount(0);
-        Object[][] calendarData = new Object[6][7];
-
-        // Fill in the calendar data with the appropriate dates
-        int day = 1;
-        for (int i = 0; i < 6; i++) {
-            for (int j = 0; j < 7; j++) {
-                if ((i == 0 && j < firstDayOfMonth - 1) || (day > daysInMonth)) {
-                    calendarData[i][j] = null;
-                } else {
-                    calendarData[i][j] = day;
-                    day++;
-                }
-            }
-        }
-
-        for (int i = 0; i < 6; i++) {
-            calendarModel.addRow(calendarData[i]);
-        }
-        
+        calendarModel.setRowCount(6);
         DayRenderer customRenderer = new DayRenderer();
         
         //calendarTable.getColumnModel().getColumn(1).setCellRenderer(new DayRenderer());
@@ -531,13 +507,13 @@ public class TodoListApp extends JFrame {
             label = new JLabel();
             dueDateLabel = new JLabel();
             
-            label.setPreferredSize(new Dimension(16, 32));
+            label.setPreferredSize(new Dimension(16, 28));
             label.setFont(new Font(label.getFont().getName(), label.getFont().getStyle(), 16));
             
-            dueDateLabel.setPreferredSize(new Dimension(90, 32));
+            dueDateLabel.setPreferredSize(new Dimension(90, 28));
             dueDateLabel.setHorizontalAlignment(SwingConstants.LEFT);
             
-            checkBox.setPreferredSize(new Dimension(32, 32));
+            checkBox.setPreferredSize(new Dimension(32, 28));
             checkBox.setHorizontalAlignment(SwingConstants.CENTER);
             
             add(checkBox, BorderLayout.WEST);
@@ -557,11 +533,15 @@ public class TodoListApp extends JFrame {
             dueDateLabel.setText(prettyDateFormat.format(dueDate));
 
             if (isSelected) {
-                setBackground(list.getSelectionBackground());
-                setForeground(list.getSelectionForeground());
+                setBorder(BorderFactory.createLineBorder(new Color(80, 200, 120)));
+                setBackground(new Color(210,240,220));
+                //setBackground(list.getSelectionBackground());
+                //setForeground(list.getSelectionForeground());
             } else {
-                setBackground(list.getBackground());
-                setForeground(list.getForeground());
+                setBorder(null);
+                setBackground(new Color(242,242,242));
+                //setBackground(list.getBackground());
+                //setForeground(list.getForeground());
             }
 
             return this;
