@@ -1,7 +1,5 @@
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.text.SimpleDateFormat;
@@ -11,155 +9,178 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.text.ParseException;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Calendar;
 import javax.swing.table.DefaultTableModel;
 
 public class TodoListApp extends JFrame {
     
-    private DefaultListModel<Task> toDoListModel;
     private JList<Task> toDoList;
-    private SimpleDateFormat dateFormat;
-    private ArrayList<Task> originalTasks;
     private JPanel calendarPanel;
     private JTable calendarTable;
     private JComboBox<String> monthComboBox;
     private JComboBox<String> yearComboBox;
+    
+    private DefaultListModel<Task> toDoListModel = new DefaultListModel<>();
     private DefaultTableModel calendarModel;
+    
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    private final List<Task> originalTasks = new ArrayList<>();;
     private Date selectedDate = null;
-
+    private final String[] months = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
+    
+    public static void main(String[] args) {
+        setLookAndFeel("Nimbus");
+        SwingUtilities.invokeLater(() -> new TodoListApp());
+    }
+    
     public TodoListApp() {
+        initComponents();
+        loadTasksFromFile();
+        setVisible(true);
+    }
+
+    private void initComponents() {
+        // Initialize JFrame
         setTitle("To-Do List");
         setSize(600, 600);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
-        originalTasks = new ArrayList<>();
         
+        // Add calendar panel
         initializeCalendarPanel();
         add(calendarPanel, BorderLayout.NORTH);
-
-        dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-
-        toDoListModel = new DefaultListModel<>();
-        toDoList = new JList<>(toDoListModel);
+        
+        // Add control panel
         JButton addButton = new JButton("Add");
         JButton removeButton = new JButton("Remove");
-
-        JPanel controlPanel = new JPanel();
-        controlPanel.add(addButton);
-        controlPanel.add(removeButton);
-
         JButton filterCompletedButton = new JButton("Completed");
         JButton filterIncompleteButton = new JButton("Incomplete");
         JButton showAllButton = new JButton("Show All");
-
+                
+        JPanel controlPanel = new JPanel();
+        controlPanel.add(addButton);
+        controlPanel.add(removeButton);
         controlPanel.add(filterCompletedButton);
         controlPanel.add(filterIncompleteButton);
         controlPanel.add(showAllButton);
-
-        add(new JScrollPane(toDoList), BorderLayout.CENTER);
+        
         add(controlPanel, BorderLayout.SOUTH);
-
-        addButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Create a custom dialog for adding a task
-                JPanel dialogPanel = new JPanel(new GridLayout(3, 2));
-                JTextField descriptionField = new JTextField();
-                JTextField dueDateField = new JTextField();
-                dialogPanel.add(new JLabel("Description:"));
-                dialogPanel.add(descriptionField);
-                dialogPanel.add(new JLabel("Due Date (YYYY-MM-DD):"));
-                dialogPanel.add(dueDateField);
-
-                int result = JOptionPane.showConfirmDialog(
-                    TodoListApp.this,
-                    dialogPanel,
-                    "Add a Task",
-                    JOptionPane.OK_CANCEL_OPTION
-                );
-
-                if (result == JOptionPane.OK_OPTION) {
-                    String taskDescription = descriptionField.getText();
-                    String dueDateString = dueDateField.getText();
-
-                    if (!taskDescription.isEmpty() && !dueDateString.isEmpty()) {
-                        try {
-                            Date dueDate = dateFormat.parse(dueDateString);
-                            Task task = new Task(taskDescription, false, dueDate);
-                            toDoListModel.addElement(task);
-                            originalTasks.add(task); // Add the task to originalTasks
-                            saveTasksToFile(); // Save tasks after adding
-                        } catch (Exception ex) {
-                            JOptionPane.showMessageDialog(
-                                TodoListApp.this,
-                                "Invalid due date format. Please use YYYY-MM-DD.",
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
-        removeButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                int selectedIndex = toDoList.getSelectedIndex();
-                if (selectedIndex != -1) {
-                    Task removedTask = toDoListModel.getElementAt(selectedIndex); // Get the selected task
-                    toDoListModel.remove(selectedIndex); // Remove from the list model
-                    originalTasks.remove(removedTask); // Remove from the originalTasks ArrayList
-                    saveTasksToFile(); // Save tasks after removing
-                }
-            }
-        });
-            
-        filterCompletedButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                filterTasks(true);
-            }
-        });
-
-        filterIncompleteButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                filterTasks(false);
-            }
-        });
-
-        showAllButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                showAllTasks();
-            }
-        });
-
+        
+        // Control panel functionality
+        addButton.addActionListener((var e) -> showAddTaskMenu());
+        removeButton.addActionListener((var e) -> removeSelectedTask());
+        filterCompletedButton.addActionListener((var e) -> filterTasks(new FilterOptions(true, false)));
+        filterIncompleteButton.addActionListener((var e) -> filterTasks(new FilterOptions(false, true)));
+        showAllButton.addActionListener((var e) -> filterTasks(new FilterOptions()));
+        
+        // Set up todo list
+        toDoList = new JList<>(toDoListModel);
         toDoList.setCellRenderer(new CheckboxListCellRenderer());
-
+        
         toDoList.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
+            @Override public void mouseClicked(MouseEvent e) {
                 int index = toDoList.locationToIndex(e.getPoint());
-                if (index != -1) {
-                    Task task = toDoListModel.get(index);
-                    task.setCompleted(!task.isCompleted());
-                    toDoList.repaint();
-                }
+                if (index == -1) return;
+                
+                Task task = toDoListModel.get(index);
+                task.setCompleted(!task.isCompleted());
+                toDoList.repaint();
             }
         });
+        
+        add(new JScrollPane(toDoList), BorderLayout.CENTER);
+    }
+    
+    private class AddTaskMenu extends JPanel {
+        public JTextField descriptionField;
+        public JTextField dueDateField;
+        
+        public AddTaskMenu() {
+            initComponents();
+        }
+        
+        private void initComponents() {
+            setLayout(new GridLayout(3, 2));
+            descriptionField = new JTextField();
+            dueDateField = new JTextField();
+            
+            add(new JLabel("Description:"));
+            add(descriptionField);
+            add(new JLabel("Due Date (YYYY-MM-DD):"));
+            add(dueDateField);
+        }
+    }
+    
+    private void showAddTaskMenu() {
+        // Create a custom dialog for adding a task
+        AddTaskMenu dialogPanel = new AddTaskMenu();
+
+        int result = JOptionPane.showConfirmDialog(
+            TodoListApp.this,
+            dialogPanel,
+            "Add a Task",
+            JOptionPane.OK_CANCEL_OPTION
+        );
+
+        if (result == JOptionPane.OK_OPTION) {
+            String taskDescription = dialogPanel.descriptionField.getText();
+            String dueDateString = dialogPanel.dueDateField.getText();
+
+            if (!taskDescription.isEmpty() && !dueDateString.isEmpty()) {
+                try {
+                    Date dueDate = dateFormat.parse(dueDateString);
+                    Task task = new Task(taskDescription, false, dueDate);
+                    toDoListModel.addElement(task);
+                    originalTasks.add(task); // Add the task to originalTasks
+                    saveTasksToFile(); // Save tasks after adding
+                } catch (ParseException ex) {
+                    JOptionPane.showMessageDialog(
+                        TodoListApp.this,
+                        "Invalid due date format. Please use YYYY-MM-DD.",
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE
+                    );
+                }
+            }
+        }
+    }
+    
+    private void removeSelectedTask() {
+        int selectedIndex = toDoList.getSelectedIndex();
+        if (selectedIndex != -1) {
+            Task removedTask = toDoListModel.getElementAt(selectedIndex); // Get the selected task
+            toDoListModel.remove(selectedIndex); // Remove from the list model
+            originalTasks.remove(removedTask); // Remove from the originalTasks ArrayList
+            saveTasksToFile(); // Save tasks after removing
+        }
+    }
+    
+    private class FilterOptions {
+        public boolean showComplete = true;
+        public boolean showIncomplete = true;
+        
+        public FilterOptions() { }
+        public FilterOptions(boolean showComplete, boolean showIncomplete) {
+            this.showComplete = showComplete;
+            this.showIncomplete = showIncomplete;
+        }
+    }
+    
+    private void filterTasks(FilterOptions options) {
+        toDoListModel.clear();
+        for (Task task : originalTasks) {
+            if (options.showComplete && task.isCompleted()) toDoListModel.addElement(task);
+            else if (options.showIncomplete && !task.isCompleted()) toDoListModel.addElement(task);
+        }
     }
     
     private void initializeCalendarPanel() {
         calendarPanel = new JPanel(new BorderLayout());
 
         // Month and Year Selection
-        String[] months = {"January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"};
+        
         monthComboBox = new JComboBox<>(months);
         Calendar calendar = Calendar.getInstance();
         int currentMonth = calendar.get(Calendar.MONTH); // Calendar.MONTH is zero-based
@@ -292,15 +313,6 @@ public class TodoListApp extends JFrame {
             e.printStackTrace();
         }
     }
-    
-    private void filterTasks(boolean showCompleted) {
-        toDoListModel.clear();
-        for (Task task : originalTasks) {
-            if (task.isCompleted() == showCompleted) {
-                toDoListModel.addElement(task);
-            }
-        }
-    }
 
     private void showAllTasks() {
         toDoListModel.clear();
@@ -327,35 +339,29 @@ public class TodoListApp extends JFrame {
             && cal1.get(Calendar.MONTH) == cal2.get(Calendar.MONTH)
             && cal1.get(Calendar.DAY_OF_MONTH) == cal2.get(Calendar.DAY_OF_MONTH);
     }
-
-    public static void main(String[] args) {
+    
+    private static void setLookAndFeel(String name) {
         try {
             for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-                if ("Nimbus".equals(info.getName())) {
+                if (name.equals(info.getName())) {
+                    System.out.println(info.getClassName());
                     javax.swing.UIManager.setLookAndFeel(info.getClassName());
                     break;
                 }
             }
-        } catch (Exception ex) {
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | UnsupportedLookAndFeelException ex) {
             java.util.logging.Logger.getLogger(TodoListApp.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
         }
-
-        SwingUtilities.invokeLater(new Runnable() {
-            public void run() {
-                TodoListApp app = new TodoListApp();
-                app.loadTasksFromFile();
-                app.setVisible(true);
-            }
-        });
     }
 
     class CheckboxListCellRenderer extends JPanel implements ListCellRenderer<Task> {
-        private JCheckBox checkBox;
-        private JLabel label;
-        private JLabel dueDateLabel;
+        private final JCheckBox checkBox;
+        private final JLabel label;
+        private final JLabel dueDateLabel;
 
         public CheckboxListCellRenderer() {
             setLayout(new BorderLayout());
+            
             checkBox = new JCheckBox();
             label = new JLabel();
             dueDateLabel = new JLabel();
@@ -387,9 +393,9 @@ public class TodoListApp extends JFrame {
     }
 
     class Task {
-        private String text;
+        public final String text;
         private boolean completed;
-        private Date dueDate;
+        private final Date dueDate;
 
         public Task(String text, boolean completed, Date dueDate) {
             this.text = text;
@@ -397,20 +403,9 @@ public class TodoListApp extends JFrame {
             this.dueDate = dueDate;
         }
 
-        public String getText() {
-            return text;
-        }
-
-        public boolean isCompleted() {
-            return completed;
-        }
-
-        public void setCompleted(boolean completed) {
-            this.completed = completed;
-        }
-
-        public Date getDueDate() {
-            return dueDate;
-        }
+        public String getText() { return text; }
+        public boolean isCompleted() { return completed; }
+        public void setCompleted(boolean completed) { this.completed = completed; }
+        public Date getDueDate() { return dueDate; }
     }
 }
