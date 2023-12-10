@@ -12,6 +12,8 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Calendar;
+import java.util.Collections;
+
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 
@@ -104,6 +106,7 @@ public class TodoListApp extends JFrame {
                 // Toggle selected only if checkbox area clicked
                 if (e.getPoint().x <= 32) {
                     task.setCompleted(!task.isCompleted());
+                    sortTasks();
                     tasksChangedUpdate();
                 }
                 
@@ -431,11 +434,24 @@ public class TodoListApp extends JFrame {
                 Task task = new Task(taskDescription, false, dueDate);
                 toDoListModel.addElement(task);
                 originalTasks.add(task); // Add the task to originalTasks
+                sortTasks();
                 tasksChangedUpdate();
             }
         }
     }
     
+    private void sortTasks() {
+        toDoListModel.clear();
+        Collections.sort(originalTasks, (Task t1, Task t2) -> {
+            if (t1.isCompleted() != t2.isCompleted())
+                return t1.isCompleted() ? 1 : -1;
+            else
+                return (t1.dueDate.getTime() - t2.dueDate.getTime() > 0) ? 1 : -1;
+        });
+
+        for (Task task : originalTasks)toDoListModel.addElement(task);
+    }
+
     // Options for filtering tasks
     private class FilterOptions {
         public boolean showComplete = true;
@@ -508,7 +524,8 @@ public class TodoListApp extends JFrame {
                     originalTasks.add(task);
                 }
             }
-	    toDoList.repaint();
+            sortTasks();
+            toDoList.repaint();
         } catch (IOException | ParseException e) {
             e.printStackTrace(System.err);
         }
