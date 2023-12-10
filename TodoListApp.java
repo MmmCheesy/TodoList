@@ -12,7 +12,6 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Calendar;
-import javax.swing.border.Border;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 
@@ -38,6 +37,20 @@ public class TodoListApp extends JFrame {
         SwingUtilities.invokeLater(() -> new TodoListApp());
     }
     
+    private static void setLookAndFeel(String name) {
+        try {
+            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
+                if (name.equals(info.getName())) {
+                    System.out.println(info.getClassName());
+                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
+                    break;
+                }
+            }
+        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | UnsupportedLookAndFeelException ex) {
+            java.util.logging.Logger.getLogger(TodoListApp.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        }
+    }
+    
     public TodoListApp() {
         initComponents();
         loadTasksFromFile();
@@ -52,10 +65,10 @@ public class TodoListApp extends JFrame {
         setLocationRelativeTo(null);
         
         // Add calendar panel
-        initializeCalendarPanel();
+        calendarPanel = new CalendarPanel();
         add(calendarPanel, BorderLayout.NORTH);
         
-        // Add control panel
+        // Add control panel (bottom buttons)
         JButton addButton = new JButton("Add");
         JButton removeButton = new JButton("Remove");
         JButton filterCompletedButton = new JButton("Completed");
@@ -83,11 +96,13 @@ public class TodoListApp extends JFrame {
         toDoList.setCellRenderer(new CheckboxListCellRenderer());
         
         toDoList.addMouseListener(new MouseAdapter() {
-            @Override public void mousePressed(MouseEvent e) {
+            @Override 
+            public void mousePressed(MouseEvent e) {
                 int index = toDoList.locationToIndex(e.getPoint());
                 if (index == -1) return;
                 
                 Task task = toDoListModel.get(index);
+                // Toggle selected only if checkbox area clicked
                 if (e.getPoint().x <= 32) task.setCompleted(!task.isCompleted());
                 toDoList.repaint();
             }
@@ -96,28 +111,306 @@ public class TodoListApp extends JFrame {
         add(new JScrollPane(toDoList), BorderLayout.CENTER);
     }
     
+    // The calender element and its functionality
+    private class CalendarPanel extends JPanel {
+        public CalendarPanel() {
+            initComponents();
+        }
+        
+        private void initComponents() {
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); 
+
+            // Build top selection panel
+            Calendar calendar = Calendar.getInstance();
+            int currentMonth = calendar.get(Calendar.MONTH);
+            int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+        
+            monthComboBox = new JComboBox<>(months);
+            monthComboBox.setSelectedIndex(currentMonth);
+            monthComboBox.addActionListener(e -> updateCalendar());
+            
+            SpinnerNumberModel yearModel = new SpinnerNumberModel(currentYear , currentYear - 100, currentYear + 100, 1);
+            yearSpinner = new JSpinner(yearModel);
+            yearSpinner.setEditor(new JSpinner.NumberEditor(yearSpinner, "#"));
+            yearSpinner.addChangeListener(e -> updateCalendar());
+
+            JButton todayButton = new JButton("Today");
+            todayButton.addActionListener(e -> {
+                yearSpinner.setValue(currentYear);
+                monthComboBox.setSelectedIndex(currentMonth);
+            });
+
+            JPanel dateSelectionPanel = new JPanel();
+            dateSelectionPanel.add(monthComboBox);
+            dateSelectionPanel.add(yearSpinner);  // Added year selection to the panel
+            dateSelectionPanel.add(todayButton);
+            add(dateSelectionPanel);
+
+            // Build calendar
+            calendarTable = new JTable() {
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    return false; 
+                }
+            };
+
+            // On calendar click, set selectedDate & filter tasks 
+            calendarTable.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent evt) {
+                    int row = calendarTable.rowAtPoint(evt.getPoint());
+                    int col = calendarTable.columnAtPoint(evt.getPoint());
+                    if (row >= 0 && col >= 0) {
+                        Calendar cal = Calendar.getInstance();
+                        cal.set(Calendar.MONTH, monthComboBox.getSelectedIndex());
+                        cal.set(Calendar.YEAR, (Integer) yearSpinner.getValue());
+                        cal.set(Calendar.DAY_OF_MONTH, 1);
+
+                        int firstDayOfMonth = cal.get(Calendar.DAY_OF_WEEK) - 1;  // 1st day of the month
+                        int day = 1 + (row * 7) + col - firstDayOfMonth;
+
+                        cal.set(Calendar.DATE, day);
+                        selectedDate = cal.getTime();
+
+                        filterTasks(new FilterOptions(selectedDate));
+                    }
+                }
+            });
+
+            calendarTable.setRowHeight(60);
+            calendarTable.setDefaultEditor(Object.class, null); // Make cells non-editable
+            
+            // Build calendar data model
+            calendarModel = new DefaultTableModel(new Object[][]{}, new String[]{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"});
+            calendarModel.setRowCount(6);
+            calendarTable.setModel(calendarModel);
+            DayRenderer customRenderer = new DayRenderer();
+            for (int i = 0; i < calendarTable.getColumnCount(); i++) {
+                calendarTable.getColumnModel().getColumn(i).setCellRenderer(customRenderer);
+            }     
+
+            // ScrollPane wrapper for calendar
+            JScrollPane parentPanel = new JScrollPane(calendarTable);
+            
+            // Fit parent scroll pane to calendarTable
+            int totalRowHeight = (calendarTable.getRowHeight() + 1) * calendarTable.getRowCount();
+            if (calendarTable.getTableHeader() != null) totalRowHeight += calendarTable.getTableHeader().getPreferredSize().height;
+            parentPanel.setPreferredSize(new Dimension(calendarTable.getColumnModel().getTotalColumnWidth(), totalRowHeight));
+
+            add(parentPanel);
+        }
+    }
+    
+    // Should be called whenever the calendar needs to be updated/changed
+    private void updateCalendar() {
+        calendarModel.fireTableDataChanged();
+    }
+    
+    //  Renderer for each cell (day) in calendary
+    private class DayRenderer extends JPanel implements TableCellRenderer {
+        JLabel dayLabel;
+        JLabel notifLabel;
+
+        public DayRenderer() {
+            initComponents();
+        }
+        
+        private void initComponents() {
+            setLayout(new BorderLayout());
+
+            // Large main day label
+            dayLabel = new JLabel();
+            dayLabel.setFont(new Font(dayLabel.getFont().getName(), Font.BOLD, 20));
+            dayLabel.setPreferredSize(new Dimension(32, 0));
+            dayLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+            add(dayLabel, BorderLayout.WEST);
+
+            // Small notification label
+            notifLabel = new JLabel();
+            notifLabel.setHorizontalAlignment(SwingConstants.LEFT);
+            notifLabel.setVerticalAlignment(SwingConstants.BOTTOM);
+            notifLabel.setPreferredSize(new Dimension(12, 0));
+            notifLabel.setFont(new Font(notifLabel.getFont().getName(), Font.BOLD, 12));
+            notifLabel.setForeground(new Color(150,0,0));
+            add(notifLabel, BorderLayout.EAST);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {         
+            setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+
+            // Set background on border based on selected, or even/odd row
+            if (isSelected && table.getSelectedRow() == row && table.getSelectedColumn() == column) {
+                setBackground(new Color(210,240,220));
+                setBorder(BorderFactory.createLineBorder(new Color(80, 200, 120)));
+            } else if (row % 2 == 0) {
+                setBackground(Color.WHITE);
+            } else {
+                setBackground(new Color(242,242,242));
+            }
+
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.MONTH, monthComboBox.getSelectedIndex());
+            cal.set(Calendar.YEAR, (Integer) yearSpinner.getValue());
+            cal.set(Calendar.DAY_OF_MONTH, 1);
+
+            int firstDayOfMonth = cal.get(Calendar.DAY_OF_WEEK) - 1;  // 1st day of the month
+            int daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH);
+
+            // Calculate day based on row and column
+            int day = 1 + (row * 7) + column - firstDayOfMonth;
+            cal.set(Calendar.DAY_OF_MONTH, day);
+            
+            dayLabel.setText((day > 0 && day <= daysInMonth) ? ("" + day) : "");
+            
+            // Get tasks on this day for notif label
+            int matchingTasks = 0;
+            for (Task task : originalTasks) {
+                if (isSameDay(task.getDueDate(), cal.getTime())) 
+                    matchingTasks++;
+            }
+            
+            notifLabel.setText(matchingTasks > 0 ? ("" + matchingTasks) : "");
+            return this;
+        }
+    }
+    
+    // Data for each task
+    class Task {
+        public final String text;
+        private boolean completed;
+        private final Date dueDate;
+
+        public Task(String text, boolean completed, Date dueDate) {
+            this.text = text;
+            this.completed = completed;
+            this.dueDate = dueDate;
+        }
+
+        public String getText() { return text; }
+        public boolean isCompleted() { return completed; }
+        public void setCompleted(boolean completed) { this.completed = completed; }
+        public Date getDueDate() { return dueDate; }
+    }
+
+    // Renderer for each task in the list
+    class CheckboxListCellRenderer extends JPanel implements ListCellRenderer<Task> {
+        private final JLabel label;
+        private final JCheckBox checkBox;
+        private final JLabel dueDateLabel;
+
+        public CheckboxListCellRenderer() {
+            setLayout(new BorderLayout());
+
+            label = new JLabel();
+            label.setPreferredSize(new Dimension(16, 28));
+            label.setFont(new Font(label.getFont().getName(), label.getFont().getStyle(), 16));
+            add(label, BorderLayout.CENTER);
+            
+            dueDateLabel = new JLabel();
+            dueDateLabel.setPreferredSize(new Dimension(90, 28));
+            dueDateLabel.setHorizontalAlignment(SwingConstants.LEFT);
+            add(dueDateLabel, BorderLayout.EAST);
+            
+            checkBox = new JCheckBox();
+            checkBox.setPreferredSize(new Dimension(32, 28));
+            checkBox.setHorizontalAlignment(SwingConstants.CENTER);
+            add(checkBox, BorderLayout.WEST);
+
+            add(new JSeparator(), BorderLayout.SOUTH);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList<? extends Task> list, Task value, int index, boolean isSelected, boolean cellHasFocus) {
+            // Set checkbox based on task completion
+            checkBox.setSelected(value.isCompleted());
+            checkBox.setEnabled(list.isEnabled());
+
+            label.setText(value.getText());
+            dueDateLabel.setText(prettyDateFormat.format(value.getDueDate()));
+
+            // Sed border and background color for selection
+            if (isSelected) {
+                setBorder(BorderFactory.createLineBorder(new Color(80, 200, 120)));
+                setBackground(new Color(210,240,220));
+            } else {
+                setBorder(null);
+                setBackground(new Color(242,242,242));
+            }
+
+            return this;
+        }
+    }
+    
+    // The content that is displayed with the add task dialog
     private class AddTaskMenu extends JPanel {
         public JTextField descriptionField;
-        public JTextField dueDateField;
+        private JComboBox monthField;
+        private JSpinner dayField;
+        private JSpinner yearField;
         
         public AddTaskMenu() {
             initComponents();
         }
         
-        private void initComponents() {
-            setLayout(new GridLayout(3, 2));
-            descriptionField = new JTextField();
-            dueDateField = new JTextField();
+        // Get date from 3 components
+        public Date getDate() {
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.MONTH, monthField.getSelectedIndex());
+            cal.set(Calendar.YEAR, (Integer) yearField.getValue());
+            cal.set(Calendar.DAY_OF_MONTH, (Integer) dayField.getValue());
             
-            add(new JLabel("Description:"));
+            return cal.getTime();
+        }
+        
+        private void initComponents() {
+            Calendar calendar = Calendar.getInstance();
+            int currentMonth = calendar.get(Calendar.MONTH);
+            int currentDay = Calendar.getInstance().get(Calendar.DAY_OF_MONTH);
+            int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+        
+            setLayout(new GridLayout(4, 1));
+            
+            JLabel taskLabel = new JLabel("Task: ");
+            taskLabel.setFont(new Font(taskLabel.getFont().getName(), Font.BOLD, 12));
+            add(taskLabel);
+            
+            descriptionField = new JTextField();
             add(descriptionField);
-            add(new JLabel("Due Date (YYYY-MM-DD):"));
-            add(dueDateField);
+            
+            JLabel dateLabel = new JLabel("Date: ");
+            dateLabel.setFont(new Font(dateLabel.getFont().getName(), Font.BOLD, 12));
+            add(dateLabel);
+            
+            monthField = new JComboBox<>(months);
+            monthField.setSelectedIndex(currentMonth);
+            
+            SpinnerNumberModel dayModel = new SpinnerNumberModel(1 , 1, 31, 1);
+            dayField = new JSpinner(dayModel);
+            dayField.setValue(currentDay); 
+            
+            SpinnerNumberModel yearModel = new SpinnerNumberModel(currentYear , currentYear - 100, currentYear + 100, 1);
+            yearField = new JSpinner(yearModel);
+            yearField.setEditor(new JSpinner.NumberEditor(yearField, "#"));
+            
+            JPanel datePicker = new JPanel();
+            datePicker.setLayout(new BoxLayout(datePicker, BoxLayout.X_AXIS));
+            datePicker.add(monthField);
+            datePicker.add(dayField);
+            datePicker.add(yearField);
+            
+            add(datePicker);
         }
     }
     
+    // Should be called whenever tasks change
+    private void tasksChangedUpdate() {
+        saveTasksToFile(); 
+        updateCalendar();
+    }
+    
+    // Show a custom dialog for adding a task
     private void showAddTaskMenu() {
-        // Create a custom dialog for adding a task
         AddTaskMenu dialogPanel = new AddTaskMenu();
 
         int result = JOptionPane.showConfirmDialog(
@@ -129,38 +422,18 @@ public class TodoListApp extends JFrame {
 
         if (result == JOptionPane.OK_OPTION) {
             String taskDescription = dialogPanel.descriptionField.getText();
-            String dueDateString = dialogPanel.dueDateField.getText();
 
-            if (!taskDescription.isEmpty() && !dueDateString.isEmpty()) {
-                try {
-                    Date dueDate = dateFormat.parse(dueDateString);
-                    Task task = new Task(taskDescription, false, dueDate);
-                    toDoListModel.addElement(task);
-                    originalTasks.add(task); // Add the task to originalTasks
-                    saveTasksToFile(); // Save tasks after adding
-                    updateCalendar();
-                } catch (ParseException ex) {
-                    JOptionPane.showMessageDialog(
-                        TodoListApp.this,
-                        "Invalid due date format. Please use YYYY-MM-DD.",
-                        "Error",
-                        JOptionPane.ERROR_MESSAGE
-                    );
-                }
+            if (!taskDescription.isEmpty()) {
+                Date dueDate = dialogPanel.getDate();
+                Task task = new Task(taskDescription, false, dueDate);
+                toDoListModel.addElement(task);
+                originalTasks.add(task); // Add the task to originalTasks
+                tasksChangedUpdate();
             }
         }
     }
     
-    private void removeSelectedTask() {
-        int selectedIndex = toDoList.getSelectedIndex();
-        if (selectedIndex != -1) {
-            Task removedTask = toDoListModel.getElementAt(selectedIndex); // Get the selected task
-            toDoListModel.remove(selectedIndex); // Remove from the list model
-            originalTasks.remove(removedTask); // Remove from the originalTasks ArrayList
-            saveTasksToFile(); // Save tasks after removing
-        }
-    }
-    
+    // Options for filtering tasks
     private class FilterOptions {
         public boolean showComplete = true;
         public boolean showIncomplete = true;
@@ -178,6 +451,7 @@ public class TodoListApp extends JFrame {
         }
     }
     
+    // Filter tasks based on provided options
     private void filterTasks(FilterOptions options) {
         toDoListModel.clear();
         if (options.clearSelection) calendarTable.clearSelection();
@@ -187,239 +461,20 @@ public class TodoListApp extends JFrame {
                 else if (options.showIncomplete && !task.isCompleted()) toDoListModel.addElement(task);
             } 
         }
-    }
+    } 
     
-    // Custom border class for rounded borders
-    private static class RoundedBorder implements Border {
-        private Color color;
-        private int thickness;
-        //private int radius;
-
-        RoundedBorder(Color color, int thickness, int radius) {
-            this.color = color;
-            this.thickness = thickness;
-            //this.radius = radius;
-        }
-
-        @Override
-        public Insets getBorderInsets(Component c) {
-            int radius = Math.min(c.getWidth(), c.getHeight()) / 2;
-            return new Insets(radius, radius, radius, radius);
-        }
-
-        @Override
-        public boolean isBorderOpaque() {
-            return true;
-        }
-
-        @Override
-        public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
-            int radius = 16;//Math.min(width, height) / 2;
-            g.setColor(this.color);
-            Graphics2D g2d = (Graphics2D) g;
-            g2d.setStroke(new BasicStroke(this.thickness));
-            g2d.drawOval(x, y, radius * 2 - this.thickness, radius * 2 - this.thickness);
+    // Remove currently selected task
+    private void removeSelectedTask() {
+        int selectedIndex = toDoList.getSelectedIndex();
+        if (selectedIndex != -1) {
+            Task removedTask = toDoListModel.getElementAt(selectedIndex); // Get the selected task
+            toDoListModel.remove(selectedIndex); // Remove from the list model
+            originalTasks.remove(removedTask); // Remove from the originalTasks ArrayList
+            tasksChangedUpdate();
         }
     }
     
-    private class DayRenderer extends JPanel implements TableCellRenderer {
-        JLabel label1;
-        JLabel label2;
-
-        public DayRenderer() {
-                // Set BorderLayout for spacing labels on opposite ends
-            setLayout(new BorderLayout());
-
-            // Create label1 with larger font size and bold
-            label1 = new JLabel();
-            label1.setFont(new Font(label1.getFont().getName(), Font.BOLD, 20));
-            label1.setPreferredSize(new Dimension(32, 0));
-            label1.setHorizontalAlignment(SwingConstants.RIGHT);
-
-            // Create label2 with a rounded solid border
-            label2 = new JLabel();
-            //Border roundedBorder = new RoundedBorder(Color.BLACK, 2, 5); // Color, thickness, radius
-            //label2.setBorder(BorderFactory.createBevelBorder(0));
-            //label2.setHorizontalAlignment(SwingConstants.CENTER);
-            label2.setHorizontalAlignment(SwingConstants.LEFT);
-            label2.setVerticalAlignment(SwingConstants.BOTTOM);
-            label2.setPreferredSize(new Dimension(12, 0));
-            label2.setFont(new Font(label1.getFont().getName(), Font.BOLD, 12));
-            label2.setForeground(new Color(150,0,0));
-
-
-            // Add labels to the panel at opposite ends
-            add(label1, BorderLayout.WEST);
-            add(label2, BorderLayout.EAST);
-            
-            setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-        }
-
-        @Override
-        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {         
-            //setPreferredSize(new Dimension(50,50));
-            setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-            // Assume value is of a custom type that holds two values
-            //MyCellData cellData = (MyCellData) value;
-            if (isSelected && table.getSelectedRow() == row && table.getSelectedColumn() == column) {
-                setBorder(BorderFactory.createLineBorder(new Color(80, 200, 120)));
-                setBackground(new Color(210,240,220));
-            } else if (row % 2 == 0) {
-            // Set background for even rows
-                setBackground(Color.WHITE);
-            } else {
-                // Set background for odd rows
-                setBackground(new Color(242,242,242));
-            }
-            
-            int month = monthComboBox.getSelectedIndex() + 1;  // Months are 0-based
-            int year = (Integer) yearSpinner.getValue();
-
-            Calendar cal = Calendar.getInstance();
-            cal.set(Calendar.MONTH, month - 1);
-            cal.set(Calendar.YEAR, year);
-            cal.set(Calendar.DAY_OF_MONTH, 1);
-
-            int firstDayOfMonth = cal.get(Calendar.DAY_OF_WEEK) - 1;  // 1st day of the month
-
-            // Get the number of days in the month
-            int daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH);
-            //calendarModel.setRowCount(0);
-            //Object[][] calendarData = new Object[6][7];
-
-            // Fill in the calendar data with the appropriate dates
-            int day = 1 + (row * 7) + column - firstDayOfMonth;
-            
-            label1.setText((day > 0 && day <= daysInMonth) ? "" + day : "");
-            
-            int matchingTasks = 0;
-            cal.set(Calendar.DAY_OF_MONTH, day);
-            for (Task task : originalTasks) {
-                if (isSameDay(task.getDueDate(), cal.getTime())) 
-                    matchingTasks++;
-            }
-            
-            label2.setText(matchingTasks > 0 ? "" + matchingTasks : "");
-            return this;
-        }
-    }
-    
-    private void initializeCalendarPanel() {
-        calendarPanel = new JPanel();
-        calendarPanel.setLayout(new BoxLayout(calendarPanel, BoxLayout.Y_AXIS)); // Or Y_AXIS
-
-        // Month and Year Selection
-        
-        monthComboBox = new JComboBox<>(months);
-        Calendar calendar = Calendar.getInstance();
-        int currentMonth = calendar.get(Calendar.MONTH); // Calendar.MONTH is zero-based
-        monthComboBox.setSelectedIndex(currentMonth);
-        monthComboBox.addActionListener(e -> updateCalendar());
-
-        int currentYear = Calendar.getInstance().get(Calendar.YEAR);
-        SpinnerNumberModel yearModel = new SpinnerNumberModel(currentYear , currentYear - 100, currentYear + 100, 1);
-        yearSpinner = new JSpinner(yearModel);
-
-        // Set this format in the editor
-        yearSpinner.setEditor(new JSpinner.NumberEditor(yearSpinner, "#"));
-        
-        
-        yearSpinner.addChangeListener(e -> updateCalendar());
-        
-        JButton todayButton = new JButton("Today");
-        todayButton.addActionListener(e -> {
-            yearSpinner.setValue(currentYear);
-            monthComboBox.setSelectedIndex(currentMonth);
-        });
-        
-        // Year selection from 2023 to a future year
-        //yearComboBox = new JComboBox<>();
-        //for (int year = 2023; year <= 2030; year++) {
-        //    yearComboBox.addItem(String.valueOf(year));
-        //}
-        //yearComboBox.addActionListener(e -> updateCalendar());
-
-        JPanel selectionPanel = new JPanel();
-        selectionPanel.add(monthComboBox);
-        selectionPanel.add(yearSpinner);  // Added year selection to the panel
-        selectionPanel.add(todayButton);
-        calendarPanel.add(selectionPanel);
-
-        // Calendar Display
-        calendarTable = new JTable() {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false; // Make cells non-editable
-            }
-        };
-
-        // Add mouse listener to handle date selection
-        calendarTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent evt) {
-                int row = calendarTable.rowAtPoint(evt.getPoint());
-                int col = calendarTable.columnAtPoint(evt.getPoint());
-                if (row >= 0 && col >= 0) {
-                    Object selectedValue = calendarTable.getValueAt(row, col);
-                    if (selectedValue != null) {
-                        int day = Integer.parseInt(selectedValue.toString());
-                        int month = monthComboBox.getSelectedIndex(); // 0-based month
-                        int year = (Integer) yearSpinner.getValue();
-
-                        // Update the selectedDate
-                        Calendar cal = Calendar.getInstance();
-                        cal.set(year, month, day);
-                        selectedDate = cal.getTime();
-
-                        // Fetch and display tasks for the selected date
-                        //filterByDate(selectedDate);
-                        filterTasks(new FilterOptions(selectedDate));
-                    }
-                }
-            }
-        });
-
-        calendarTable.setRowHeight(60);
-        //Dimension preferredSize = new Dimension(7 * 50, 6 * 50);
-        //for (int i = 0; i < calendarTable.getColumnCount(); i++) {
-        //    TableColumn column = calendarTable.getColumnModel().getColumn(i);
-        //    column.setPreferredWidth(30); // set your preferred width
-        //}
-        
-        calendarTable.setDefaultEditor(Object.class, null); // Make cells non-editable
-        calendarModel = new DefaultTableModel(new Object[][]{}, new String[]{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"});
-        calendarTable.setModel(calendarModel);
-        
-
-        // Initialize calendar display
-        updateCalendar();
-        
-        int totalRowHeight = (calendarTable.getRowHeight() + 1) * calendarTable.getRowCount();
-        if (calendarTable.getTableHeader() != null) {
-            totalRowHeight += calendarTable.getTableHeader().getPreferredSize().height;
-        }
-        
-        JScrollPane parentPanel = new JScrollPane(calendarTable);
-        parentPanel.setMinimumSize(new Dimension(0, 0));
-        parentPanel.setPreferredSize(new Dimension(calendarTable.getColumnModel().getTotalColumnWidth(), totalRowHeight));
-        //parentPanel.add(calendarTable);
-        //parentPanel.setBorder(new EmptyBorder(5,5,5,5));
-        //parentPanel.setLayout(new BoxLayout(parentPanel, BoxLayout.Y_AXIS));
-        calendarPanel.add(parentPanel);
-
-        
-    }
-    
-    private void updateCalendar() {
-        calendarModel.setRowCount(6);
-        DayRenderer customRenderer = new DayRenderer();
-        
-        //calendarTable.getColumnModel().getColumn(1).setCellRenderer(new DayRenderer());
-        for (int i = 0; i < calendarTable.getColumnCount(); i++) {
-            calendarTable.getColumnModel().getColumn(i).setCellRenderer(customRenderer);
-        }
-    }
-
+    // Save tasks to tasks.txt in this directoty
     private void saveTasksToFile() {
         try (PrintWriter writer = new PrintWriter("tasks.txt")) {
             for (int i = 0; i < toDoListModel.size(); i++) {
@@ -431,10 +486,11 @@ public class TodoListApp extends JFrame {
                 writer.println(taskText + "|" + completed + "|" + dueDateString); // Include completion status
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            e.printStackTrace(System.err);
         }
     }
 
+    // Load tasks from tasks.txt in this directory
     private void loadTasksFromFile() {
         try (BufferedReader reader = new BufferedReader(new FileReader("tasks.txt"))) {
             String line;
@@ -451,26 +507,11 @@ public class TodoListApp extends JFrame {
             }
 	    toDoList.repaint();
         } catch (IOException | ParseException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void showAllTasks() {
-        toDoListModel.clear();
-        for (Task task : originalTasks) {
-            toDoListModel.addElement(task);
+            e.printStackTrace(System.err);
         }
     }
     
-    private void filterByDate(Date selectedDate) {
-        toDoListModel.clear();
-        for (Task task : originalTasks) {
-            if (isSameDay(task.getDueDate(), selectedDate)) {
-                toDoListModel.addElement(task);
-            }
-        }
-    }
-
+    // Check if two dates are on the same day
     private boolean isSameDay(Date date1, Date date2) {
         Calendar cal1 = Calendar.getInstance();
         cal1.setTime(date1);
@@ -479,89 +520,5 @@ public class TodoListApp extends JFrame {
         return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
             && cal1.get(Calendar.MONTH) == cal2.get(Calendar.MONTH)
             && cal1.get(Calendar.DAY_OF_MONTH) == cal2.get(Calendar.DAY_OF_MONTH);
-    }
-    
-    private static void setLookAndFeel(String name) {
-        try {
-            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-                if (name.equals(info.getName())) {
-                    System.out.println(info.getClassName());
-                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
-                    break;
-                }
-            }
-        } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | UnsupportedLookAndFeelException ex) {
-            java.util.logging.Logger.getLogger(TodoListApp.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        }
-    }
-
-    class CheckboxListCellRenderer extends JPanel implements ListCellRenderer<Task> {
-        private final JCheckBox checkBox;
-        private final JLabel label;
-        private final JLabel dueDateLabel;
-
-        public CheckboxListCellRenderer() {
-            setLayout(new BorderLayout());
-            
-            checkBox = new JCheckBox();
-            label = new JLabel();
-            dueDateLabel = new JLabel();
-            
-            label.setPreferredSize(new Dimension(16, 28));
-            label.setFont(new Font(label.getFont().getName(), label.getFont().getStyle(), 16));
-            
-            dueDateLabel.setPreferredSize(new Dimension(90, 28));
-            dueDateLabel.setHorizontalAlignment(SwingConstants.LEFT);
-            
-            checkBox.setPreferredSize(new Dimension(32, 28));
-            checkBox.setHorizontalAlignment(SwingConstants.CENTER);
-            
-            add(checkBox, BorderLayout.WEST);
-            add(label, BorderLayout.CENTER);
-            add(dueDateLabel, BorderLayout.EAST);
-            add(new JSeparator(), BorderLayout.SOUTH);
-        }
-
-        @Override
-        public Component getListCellRendererComponent(JList<? extends Task> list, Task value, int index, boolean isSelected, boolean cellHasFocus) {
-            checkBox.setSelected(value.isCompleted());
-            checkBox.setEnabled(list.isEnabled());
-
-            label.setText(value.getText());
-
-            Date dueDate = value.getDueDate();
-            dueDateLabel.setText(prettyDateFormat.format(dueDate));
-
-            if (isSelected) {
-                setBorder(BorderFactory.createLineBorder(new Color(80, 200, 120)));
-                setBackground(new Color(210,240,220));
-                //setBackground(list.getSelectionBackground());
-                //setForeground(list.getSelectionForeground());
-            } else {
-                setBorder(null);
-                setBackground(new Color(242,242,242));
-                //setBackground(list.getBackground());
-                //setForeground(list.getForeground());
-            }
-
-            return this;
-        }
-    }
-
-    class Task {
-        public final String text;
-        private boolean completed;
-        private final Date dueDate;
-
-        public Task(String text, boolean completed, Date dueDate) {
-            this.text = text;
-            this.completed = completed;
-            this.dueDate = dueDate;
-        }
-
-        public String getText() { return text; }
-        public boolean isCompleted() { return completed; }
-        public void setCompleted(boolean completed) { this.completed = completed; }
-        public Date getDueDate() { return dueDate; }
     }
 }
