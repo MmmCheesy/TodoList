@@ -61,7 +61,7 @@ public class TodoListApp extends JFrame {
     private void initComponents() {
         // Initialize JFrame
         setTitle("To-Do List");
-        setSize(424, 700);
+        setSize(460, 700);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         
@@ -75,23 +75,43 @@ public class TodoListApp extends JFrame {
         JButton filterCompletedButton = new JButton("Completed");
         JButton filterIncompleteButton = new JButton("Incomplete");
         JButton showAllButton = new JButton("Show All");
-                
-        JPanel controlPanel = new JPanel();
+    
+        JButton filterLowPriorityButton = new JButton("Low Priority");
+        JButton filterMediumPriorityButton = new JButton("Med Priority");
+        JButton filterHighPriorityButton = new JButton("High Priority");
+    
+        JPanel controlPanel = new JPanel(new GridLayout(1, 0));
         controlPanel.add(addButton);
         controlPanel.add(removeButton);
         controlPanel.add(filterCompletedButton);
         controlPanel.add(filterIncompleteButton);
         controlPanel.add(showAllButton);
         
-        add(controlPanel, BorderLayout.SOUTH);
-        
+        JPanel masterPanel = new JPanel();
+        masterPanel.setLayout(new BoxLayout(masterPanel, BoxLayout.Y_AXIS));
+
+        JPanel priorityPanel = new JPanel();
+        priorityPanel.add(filterLowPriorityButton);
+        priorityPanel.add(filterMediumPriorityButton);
+        priorityPanel.add(filterHighPriorityButton);
+    
         // Control panel functionality
         addButton.addActionListener(e -> showAddTaskMenu());
         removeButton.addActionListener(e -> removeSelectedTask());
         filterCompletedButton.addActionListener(e -> filterTasks(new FilterOptions(true, false)));
         filterIncompleteButton.addActionListener(e -> filterTasks(new FilterOptions(false, true)));
         showAllButton.addActionListener(e -> filterTasks(new FilterOptions()));
-        
+    
+        filterLowPriorityButton.addActionListener(e -> filterTasks(new FilterOptions(null, "low")));
+        filterMediumPriorityButton.addActionListener(e -> filterTasks(new FilterOptions(null, "medium")));
+        filterHighPriorityButton.addActionListener(e -> filterTasks(new FilterOptions(null, "high")));
+    
+        //add(controlPanel, BorderLayout.SOUTH);
+        //add(priorityPanel, BorderLayout.SOUTH);
+
+        masterPanel.add(controlPanel);
+        masterPanel.add(priorityPanel);
+        add(masterPanel, BorderLayout.SOUTH);
         // Set up todo list
         toDoList = new JList<>(toDoListModel);
         toDoList.setCellRenderer(new CheckboxListCellRenderer());
@@ -286,17 +306,20 @@ public class TodoListApp extends JFrame {
         public final String text;
         private boolean completed;
         private final Date dueDate;
+        private String priority;
 
-        public Task(String text, boolean completed, Date dueDate) {
+        public Task(String text, boolean completed, Date dueDate, String priority) {
             this.text = text;
             this.completed = completed;
             this.dueDate = dueDate;
+            this.priority = priority;
         }
 
         public String getText() { return text; }
         public boolean isCompleted() { return completed; }
         public void setCompleted(boolean completed) { this.completed = completed; }
         public Date getDueDate() { return dueDate; }
+        public String getPriority() { return priority; }
     }
 
     // Renderer for each task in the list
@@ -304,6 +327,7 @@ public class TodoListApp extends JFrame {
         private final JLabel label;
         private final JCheckBox checkBox;
         private final JLabel dueDateLabel;
+        private final JComboBox<String> priorityField;
 
         public CheckboxListCellRenderer() {
             setLayout(new BorderLayout());
@@ -312,6 +336,10 @@ public class TodoListApp extends JFrame {
             label.setPreferredSize(new Dimension(16, 28));
             label.setFont(new Font(label.getFont().getName(), label.getFont().getStyle(), 16));
             add(label, BorderLayout.CENTER);
+
+            String[] priorityValues = {"low", "medium", "high"};
+            priorityField = new JComboBox<>(priorityValues);
+            add(priorityField, BorderLayout.EAST);
             
             dueDateLabel = new JLabel();
             dueDateLabel.setPreferredSize(new Dimension(90, 28));
@@ -354,6 +382,7 @@ public class TodoListApp extends JFrame {
         private JComboBox monthField;
         private JSpinner dayField;
         private JSpinner yearField;
+        private JComboBox<String> priorityField;
         
         public AddTaskMenu() {
             initComponents();
@@ -383,6 +412,14 @@ public class TodoListApp extends JFrame {
             
             descriptionField = new JTextField();
             add(descriptionField);
+
+            JLabel priorityLabel = new JLabel("Priority: ");
+            priorityLabel.setFont(new Font(priorityLabel.getFont().getName(), Font.BOLD, 12));
+            add(priorityLabel);
+    
+            String[] priorityValues = {"low", "medium", "high"};
+            priorityField = new JComboBox<>(priorityValues);
+            add(priorityField);
             
             JLabel dateLabel = new JLabel("Date: ");
             dateLabel.setFont(new Font(dateLabel.getFont().getName(), Font.BOLD, 12));
@@ -431,7 +468,8 @@ public class TodoListApp extends JFrame {
 
             if (!taskDescription.isEmpty()) {
                 Date dueDate = dialogPanel.getDate();
-                Task task = new Task(taskDescription, false, dueDate);
+                String priority = (String) dialogPanel.priorityField.getSelectedItem();
+                Task task = new Task(taskDescription, false, dueDate, priority);
                 toDoListModel.addElement(task);
                 originalTasks.add(task); // Add the task to originalTasks
                 sortTasks();
@@ -458,6 +496,7 @@ public class TodoListApp extends JFrame {
         public boolean showIncomplete = true;
         public boolean clearSelection = true;
         public Date date = null;
+        public String priority = null;
         
         public FilterOptions() { }
         public FilterOptions(Date date) {
@@ -468,19 +507,32 @@ public class TodoListApp extends JFrame {
             this.showComplete = showComplete;
             this.showIncomplete = showIncomplete;
         }
+        public FilterOptions(Date date, String priority){
+            this.date = date;
+            this.priority = priority;
+            this.clearSelection = false;
+        }
     }
     
     // Filter tasks based on provided options
-    private void filterTasks(FilterOptions options) {
-        toDoListModel.clear();
-        if (options.clearSelection) calendarTable.clearSelection();
-        for (Task task : originalTasks) {
-            if (options.date == null || isSameDay(options.date, task.dueDate)) {
-                if (options.showComplete && task.isCompleted()) toDoListModel.addElement(task);
-                else if (options.showIncomplete && !task.isCompleted()) toDoListModel.addElement(task);
-            } 
+    // Filter tasks based on provided options
+private void filterTasks(FilterOptions options) {
+    toDoListModel.clear();
+    if (options.clearSelection) calendarTable.clearSelection();
+
+    for (Task task : originalTasks) {
+        boolean matchesDate = options.date == null || isSameDay(options.date, task.dueDate);
+        boolean matchesPriority = options.priority == null || options.priority.equalsIgnoreCase(task.getPriority());
+
+        if (matchesDate && matchesPriority) {
+            if ((options.showComplete && task.isCompleted()) || (options.showIncomplete && !task.isCompleted())) {
+                toDoListModel.addElement(task);
+            }
         }
-    } 
+    }
+}
+
+    
     
     // Remove currently selected task
     private void removeSelectedTask() {
@@ -502,7 +554,8 @@ public class TodoListApp extends JFrame {
                 boolean completed = task.isCompleted(); // Get the completion status
                 Date dueDate = task.getDueDate();
                 String dueDateString = dateFormat.format(dueDate);
-                writer.println(taskText + "|" + completed + "|" + dueDateString); // Include completion status
+                String priority = task.getPriority();
+                writer.println(taskText + "|" + completed + "|" + dueDateString + "|" + priority); // Include completion status
             }
         } catch (IOException e) {
             e.printStackTrace(System.err);
@@ -515,11 +568,17 @@ public class TodoListApp extends JFrame {
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split("\\|");
-                if (parts.length == 3) {
+                if (parts.length == 4) {  // Change this line
                     String taskText = parts[0];
                     boolean completed = Boolean.parseBoolean(parts[1]);
+                    
+                    // Parse dueDate
                     Date dueDate = dateFormat.parse(parts[2]);
-                    Task task = new Task(taskText, completed, dueDate);
+    
+                    // Parse priority
+                    String priority = parts[3];
+                    
+                    Task task = new Task(taskText, completed, dueDate, priority);
                     toDoListModel.addElement(task);
                     originalTasks.add(task);
                 }
