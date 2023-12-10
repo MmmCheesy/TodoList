@@ -8,11 +8,18 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.text.NumberFormat;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Calendar;
+import javax.swing.border.Border;
+import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
+import javax.swing.text.DefaultFormatterFactory;
+import javax.swing.text.NumberFormatter;
 
 public class TodoListApp extends JFrame {
     
@@ -20,12 +27,13 @@ public class TodoListApp extends JFrame {
     private JPanel calendarPanel;
     private JTable calendarTable;
     private JComboBox<String> monthComboBox;
-    private JComboBox<String> yearComboBox;
+    private JSpinner yearSpinner;
     
     private DefaultListModel<Task> toDoListModel = new DefaultListModel<>();
     private DefaultTableModel calendarModel;
     
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    private final SimpleDateFormat prettyDateFormat = new SimpleDateFormat("MMM d, yyyy");
     private final List<Task> originalTasks = new ArrayList<>();;
     private Date selectedDate = null;
     private final String[] months = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
@@ -44,7 +52,7 @@ public class TodoListApp extends JFrame {
     private void initComponents() {
         // Initialize JFrame
         setTitle("To-Do List");
-        setSize(600, 600);
+        setSize(424, 700);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         
@@ -135,6 +143,7 @@ public class TodoListApp extends JFrame {
                     toDoListModel.addElement(task);
                     originalTasks.add(task); // Add the task to originalTasks
                     saveTasksToFile(); // Save tasks after adding
+                    updateCalendar();
                 } catch (ParseException ex) {
                     JOptionPane.showMessageDialog(
                         TodoListApp.this,
@@ -176,8 +185,121 @@ public class TodoListApp extends JFrame {
         }
     }
     
+    // Custom border class for rounded borders
+    private static class RoundedBorder implements Border {
+        private Color color;
+        private int thickness;
+        //private int radius;
+
+        RoundedBorder(Color color, int thickness, int radius) {
+            this.color = color;
+            this.thickness = thickness;
+            //this.radius = radius;
+        }
+
+        @Override
+        public Insets getBorderInsets(Component c) {
+            int radius = Math.min(c.getWidth(), c.getHeight()) / 2;
+            return new Insets(radius, radius, radius, radius);
+        }
+
+        @Override
+        public boolean isBorderOpaque() {
+            return true;
+        }
+
+        @Override
+        public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
+            int radius = 16;//Math.min(width, height) / 2;
+            g.setColor(this.color);
+            Graphics2D g2d = (Graphics2D) g;
+            g2d.setStroke(new BasicStroke(this.thickness));
+            g2d.drawOval(x, y, radius * 2 - this.thickness, radius * 2 - this.thickness);
+        }
+    }
+    
+    private class DayRenderer extends JPanel implements TableCellRenderer {
+        JLabel label1;
+        JLabel label2;
+
+        public DayRenderer() {
+                // Set BorderLayout for spacing labels on opposite ends
+            setLayout(new BorderLayout());
+
+            // Create label1 with larger font size and bold
+            label1 = new JLabel();
+            label1.setFont(new Font(label1.getFont().getName(), Font.BOLD, 20));
+            label1.setPreferredSize(new Dimension(32, 0));
+            label1.setHorizontalAlignment(SwingConstants.RIGHT);
+
+            // Create label2 with a rounded solid border
+            label2 = new JLabel();
+            //Border roundedBorder = new RoundedBorder(Color.BLACK, 2, 5); // Color, thickness, radius
+            //label2.setBorder(BorderFactory.createBevelBorder(0));
+            //label2.setHorizontalAlignment(SwingConstants.CENTER);
+            label2.setHorizontalAlignment(SwingConstants.LEFT);
+            label2.setVerticalAlignment(SwingConstants.BOTTOM);
+            label2.setPreferredSize(new Dimension(12, 0));
+            label2.setFont(new Font(label1.getFont().getName(), Font.BOLD, 12));
+            label2.setForeground(new Color(150,0,0));
+
+
+            // Add labels to the panel at opposite ends
+            add(label1, BorderLayout.WEST);
+            add(label2, BorderLayout.EAST);
+            
+            setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {         
+            //setPreferredSize(new Dimension(50,50));
+
+            // Assume value is of a custom type that holds two values
+            //MyCellData cellData = (MyCellData) value;
+            if (row % 2 == 0) {
+            // Set background for even rows
+                setBackground(Color.WHITE);
+            } else {
+                // Set background for odd rows
+                setBackground(null);
+            }
+            
+            int month = monthComboBox.getSelectedIndex() + 1;  // Months are 0-based
+            int year = (Integer) yearSpinner.getValue();
+
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.MONTH, month - 1);
+            cal.set(Calendar.YEAR, year);
+            cal.set(Calendar.DAY_OF_MONTH, 1);
+
+            int firstDayOfMonth = cal.get(Calendar.DAY_OF_WEEK) - 1;  // 1st day of the month
+
+            // Get the number of days in the month
+            int daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH);
+            //calendarModel.setRowCount(0);
+            //Object[][] calendarData = new Object[6][7];
+
+            // Fill in the calendar data with the appropriate dates
+            int day = 1 + (row * 7) + column - firstDayOfMonth;
+            
+            label1.setText((day > 0 && day <= daysInMonth) ? "" + day : "");
+            
+            int matchingTasks = 0;
+            cal.set(Calendar.DAY_OF_MONTH, day);
+            for (Task task : originalTasks) {
+                if (isSameDay(task.getDueDate(), cal.getTime())) 
+                    matchingTasks++;
+            }
+            
+            label2.setText(matchingTasks > 0 ? "" + matchingTasks : "");
+            return this;
+        }
+    }
+    
     private void initializeCalendarPanel() {
-        calendarPanel = new JPanel(new BorderLayout());
+        calendarPanel = new JPanel();
+        calendarPanel.setLayout(new BoxLayout(calendarPanel, BoxLayout.Y_AXIS)); // Or Y_AXIS
 
         // Month and Year Selection
         
@@ -187,17 +309,34 @@ public class TodoListApp extends JFrame {
         monthComboBox.setSelectedIndex(currentMonth);
         monthComboBox.addActionListener(e -> updateCalendar());
 
+        int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+        SpinnerNumberModel yearModel = new SpinnerNumberModel(currentYear , currentYear - 100, currentYear + 100, 1);
+        yearSpinner = new JSpinner(yearModel);
+
+        // Set this format in the editor
+        yearSpinner.setEditor(new JSpinner.NumberEditor(yearSpinner, "#"));
+        
+        
+        yearSpinner.addChangeListener(e -> updateCalendar());
+        
+        JButton todayButton = new JButton("Today");
+        todayButton.addActionListener(e -> {
+            yearSpinner.setValue(currentYear);
+            monthComboBox.setSelectedIndex(currentMonth);
+        });
+        
         // Year selection from 2023 to a future year
-        yearComboBox = new JComboBox<>();
-        for (int year = 2023; year <= 2030; year++) {
-            yearComboBox.addItem(String.valueOf(year));
-        }
-        yearComboBox.addActionListener(e -> updateCalendar());
+        //yearComboBox = new JComboBox<>();
+        //for (int year = 2023; year <= 2030; year++) {
+        //    yearComboBox.addItem(String.valueOf(year));
+        //}
+        //yearComboBox.addActionListener(e -> updateCalendar());
 
         JPanel selectionPanel = new JPanel();
         selectionPanel.add(monthComboBox);
-        selectionPanel.add(yearComboBox);  // Added year selection to the panel
-        calendarPanel.add(selectionPanel, BorderLayout.NORTH);
+        selectionPanel.add(yearSpinner);  // Added year selection to the panel
+        selectionPanel.add(todayButton);
+        calendarPanel.add(selectionPanel);
 
         // Calendar Display
         calendarTable = new JTable() {
@@ -218,7 +357,7 @@ public class TodoListApp extends JFrame {
                     if (selectedValue != null) {
                         int day = Integer.parseInt(selectedValue.toString());
                         int month = monthComboBox.getSelectedIndex(); // 0-based month
-                        int year = Integer.parseInt(yearComboBox.getSelectedItem().toString());
+                        int year = (Integer) yearSpinner.getValue();
 
                         // Update the selectedDate
                         Calendar cal = Calendar.getInstance();
@@ -232,22 +371,41 @@ public class TodoListApp extends JFrame {
             }
         });
 
-        calendarTable.setRowHeight(50);
-        Dimension preferredSize = new Dimension(7 * 50, 6 * 50);
-        calendarTable.setPreferredScrollableViewportSize(preferredSize);
+        calendarTable.setRowHeight(60);
+        //Dimension preferredSize = new Dimension(7 * 50, 6 * 50);
+        //for (int i = 0; i < calendarTable.getColumnCount(); i++) {
+        //    TableColumn column = calendarTable.getColumnModel().getColumn(i);
+        //    column.setPreferredWidth(30); // set your preferred width
+        //}
+        
         calendarTable.setDefaultEditor(Object.class, null); // Make cells non-editable
         calendarModel = new DefaultTableModel(new Object[][]{}, new String[]{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"});
         calendarTable.setModel(calendarModel);
-        calendarPanel.add(new JScrollPane(calendarTable), BorderLayout.CENTER);
+        
 
         // Initialize calendar display
         updateCalendar();
+        
+        int totalRowHeight = (calendarTable.getRowHeight() + 1) * calendarTable.getRowCount();
+        if (calendarTable.getTableHeader() != null) {
+            totalRowHeight += calendarTable.getTableHeader().getPreferredSize().height;
+        }
+        
+        JScrollPane parentPanel = new JScrollPane(calendarTable);
+        parentPanel.setMinimumSize(new Dimension(0, 0));
+        parentPanel.setPreferredSize(new Dimension(calendarTable.getColumnModel().getTotalColumnWidth(), totalRowHeight));
+        //parentPanel.add(calendarTable);
+        //parentPanel.setBorder(new EmptyBorder(5,5,5,5));
+        //parentPanel.setLayout(new BoxLayout(parentPanel, BoxLayout.Y_AXIS));
+        calendarPanel.add(parentPanel);
+
+        
     }
     
     private void updateCalendar() {
         // Get the selected month and year
         int month = monthComboBox.getSelectedIndex() + 1;  // Months are 0-based
-        int year = Integer.parseInt(yearComboBox.getSelectedItem().toString());
+        int year = (Integer) yearSpinner.getValue();
 
         Calendar cal = Calendar.getInstance();
         cal.set(Calendar.MONTH, month - 1);
@@ -276,6 +434,13 @@ public class TodoListApp extends JFrame {
 
         for (int i = 0; i < 6; i++) {
             calendarModel.addRow(calendarData[i]);
+        }
+        
+        DayRenderer customRenderer = new DayRenderer();
+        
+        //calendarTable.getColumnModel().getColumn(1).setCellRenderer(new DayRenderer());
+        for (int i = 0; i < calendarTable.getColumnCount(); i++) {
+            calendarTable.getColumnModel().getColumn(i).setCellRenderer(customRenderer);
         }
     }
 
@@ -365,9 +530,20 @@ public class TodoListApp extends JFrame {
             checkBox = new JCheckBox();
             label = new JLabel();
             dueDateLabel = new JLabel();
+            
+            label.setPreferredSize(new Dimension(16, 32));
+            label.setFont(new Font(label.getFont().getName(), label.getFont().getStyle(), 16));
+            
+            dueDateLabel.setPreferredSize(new Dimension(90, 32));
+            dueDateLabel.setHorizontalAlignment(SwingConstants.LEFT);
+            
+            checkBox.setPreferredSize(new Dimension(32, 32));
+            checkBox.setHorizontalAlignment(SwingConstants.CENTER);
+            
             add(checkBox, BorderLayout.WEST);
             add(label, BorderLayout.CENTER);
             add(dueDateLabel, BorderLayout.EAST);
+            add(new JSeparator(), BorderLayout.SOUTH);
         }
 
         @Override
@@ -378,7 +554,7 @@ public class TodoListApp extends JFrame {
             label.setText(value.getText());
 
             Date dueDate = value.getDueDate();
-            dueDateLabel.setText(dateFormat.format(dueDate));
+            dueDateLabel.setText(prettyDateFormat.format(dueDate));
 
             if (isSelected) {
                 setBackground(list.getSelectionBackground());
