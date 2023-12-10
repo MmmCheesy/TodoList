@@ -41,7 +41,6 @@ public class TodoListApp extends JFrame {
         try {
             for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
                 if (name.equals(info.getName())) {
-                    System.out.println(info.getClassName());
                     javax.swing.UIManager.setLookAndFeel(info.getClassName());
                     break;
                 }
