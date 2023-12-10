@@ -102,7 +102,11 @@ public class TodoListApp extends JFrame {
                 
                 Task task = toDoListModel.get(index);
                 // Toggle selected only if checkbox area clicked
-                if (e.getPoint().x <= 32) task.setCompleted(!task.isCompleted());
+                if (e.getPoint().x <= 32) {
+                    task.setCompleted(!task.isCompleted());
+                    tasksChangedUpdate();
+                }
+                
                 toDoList.repaint();
             }
         });
@@ -476,8 +480,8 @@ public class TodoListApp extends JFrame {
     // Save tasks to tasks.txt in this directoty
     private void saveTasksToFile() {
         try (PrintWriter writer = new PrintWriter("tasks.txt")) {
-            for (int i = 0; i < toDoListModel.size(); i++) {
-                Task task = toDoListModel.getElementAt(i);
+            for (int i = 0; i < originalTasks.size(); i++) {
+                Task task = originalTasks.get(i);
                 String taskText = task.getText();
                 boolean completed = task.isCompleted(); // Get the completion status
                 Date dueDate = task.getDueDate();
